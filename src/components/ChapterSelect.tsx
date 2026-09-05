@@ -20,7 +20,7 @@ export function ChapterSelect({ chapters, currentIndex, onSelect }: ChapterSelec
       >
         {chapters.map((chapter, index) => (
           <option key={chapter.id} value={index}>
-            {index + 1}. {chapter.title}
+            {chapter.title}
           </option>
         ))}
       </select>
