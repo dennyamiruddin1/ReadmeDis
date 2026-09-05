@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChapterList } from "@/components/ChapterList";
 import { ChapterReader } from "@/components/ChapterReader";
+import { ChapterSelect } from "@/components/ChapterSelect";
 import { FileDropzone } from "@/components/FileDropzone";
 import { PlayerControls } from "@/components/PlayerControls";
 import { getParserForFile, getSupportedExtensions } from "@/lib/parsers/registry";
@@ -19,6 +20,7 @@ export default function Home() {
   const [selectedVoiceId, setSelectedVoiceId] = useState(DEFAULT_VOICE_ID);
   const [rate, setRate] = useState(1);
   const [modelProgress, setModelProgress] = useState(0);
+  const [estimatedSeconds, setEstimatedSeconds] = useState(0);
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +68,7 @@ export default function Home() {
       onChunkChange: (current, total) => setProgress({ current, total }),
       onStateChange: (state) => setPlaybackState(state),
       onModelProgress: (ratio) => setModelProgress(ratio),
+      onEstimateChange: (seconds) => setEstimatedSeconds(seconds),
       onChapterEnd: () => {
         const currentBook = bookRef.current;
         const idx = chapterIndexRef.current;
@@ -206,17 +209,31 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-[220px_1fr] md:[&>*]:h-[55vh]">
-              <ChapterList
+            {/* Narrow screens: the sidebar list becomes a dropdown. */}
+            <div className="md:hidden">
+              <ChapterSelect
                 chapters={book.chapters}
                 currentIndex={chapterIndex}
                 onSelect={(index) => selectChapter(index, true)}
               />
-              <ChapterReader
-                title={book.chapters[chapterIndex].title}
-                chunks={chunks}
-                currentChunkIndex={progress.current}
-              />
+            </div>
+
+            <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-[220px_1fr]">
+              <div className="hidden h-[55vh] md:block">
+                <ChapterList
+                  chapters={book.chapters}
+                  currentIndex={chapterIndex}
+                  onSelect={(index) => selectChapter(index, true)}
+                />
+              </div>
+              {/* Fixed-height, self-contained scroll area -- the page itself doesn't scroll with it. */}
+              <div className="h-[55vh] md:h-[55vh]">
+                <ChapterReader
+                  title={book.chapters[chapterIndex].title}
+                  chunks={chunks}
+                  currentChunkIndex={progress.current}
+                />
+              </div>
             </div>
 
             <PlayerControls
@@ -233,6 +250,8 @@ export default function Home() {
               rate={rate}
               onRateChange={setRate}
               modelProgress={modelProgress}
+              modelReady={modelProgress >= 1}
+              estimatedSeconds={estimatedSeconds}
             />
           </div>
         )}

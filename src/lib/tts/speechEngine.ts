@@ -11,12 +11,24 @@ export interface SpeechEngineCallbacks {
   onError?: (message: string) => void;
   /** Fired while the Kokoro model files download on first use. `ratio` is 0..1. */
   onModelProgress?: (ratio: number) => void;
+  /**
+   * Rough estimate, in whole seconds, of the wait before audio starts playing
+   * from the current position (model download, if still needed, plus synthesis
+   * of the first chunk). `0` means the audio is already buffered.
+   */
+  onEstimateChange?: (seconds: number) => void;
 }
 
 /** Hugging Face repo for the ONNX build that kokoro-js loads. */
 const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
 
 const MAX_CHUNK_LENGTH = 220;
+
+/** Fallback guess for the one-time model download+init, refined once we've timed a real load. */
+const MODEL_LOAD_ESTIMATE_MS = { wasm: 15000, webgpu: 30000 };
+/** Fallback ms-per-character synthesis rate, refined from measured runs and persisted. */
+const MS_PER_CHAR_DEFAULT = { wasm: 55, webgpu: 14 };
+const RATE_STORAGE_KEY = "readmedis:kokoro:ms-per-char";
 
 export interface KokoroVoice {
   id: string;
@@ -107,8 +119,23 @@ export class SpeechEngine {
   /** Bumped on stop/skip/reload so stale async work resolves into a no-op. */
   private playToken = 0;
 
+  private device: "wasm" | "webgpu" = "wasm";
+  private modelLoadMs = MODEL_LOAD_ESTIMATE_MS.wasm;
+  private lastModelProgress = 0;
+  private msPerChar = MS_PER_CHAR_DEFAULT.wasm;
+  private rateSamples = 0;
+
   constructor(callbacks: SpeechEngineCallbacks = {}) {
     this.callbacks = callbacks;
+    try {
+      const saved = Number(localStorage.getItem(RATE_STORAGE_KEY));
+      if (Number.isFinite(saved) && saved > 0) {
+        this.msPerChar = saved;
+        this.rateSamples = 3; // treat a persisted rate as established but still adjustable
+      }
+    } catch {
+      // localStorage unavailable (private mode, SSR) -- fall back to the default rate.
+    }
   }
 
   static isSupported(): boolean {
@@ -125,20 +152,31 @@ export class SpeechEngine {
     if (this.tts) return this.tts;
     if (!this.loadPromise) {
       if (this.state === "idle") this.setState("loading");
+      const useWebGPU = typeof navigator !== "undefined" && "gpu" in navigator;
+      this.device = useWebGPU ? "webgpu" : "wasm";
+      this.modelLoadMs = MODEL_LOAD_ESTIMATE_MS[this.device];
+      if (this.rateSamples === 0) this.msPerChar = MS_PER_CHAR_DEFAULT[this.device];
+      this.lastModelProgress = 0;
+      this.emitEstimate();
+      const startedAt = Date.now();
       this.loadPromise = (async () => {
         const { KokoroTTS } = await import("kokoro-js");
-        const useWebGPU = typeof navigator !== "undefined" && "gpu" in navigator;
         const tts = await KokoroTTS.from_pretrained(MODEL_ID, {
           dtype: useWebGPU ? "fp32" : "q8",
           device: useWebGPU ? "webgpu" : "wasm",
           progress_callback: (event: KokoroProgressEvent) => {
             if (typeof event.progress === "number") {
-              this.callbacks.onModelProgress?.(Math.min(1, Math.max(0, event.progress / 100)));
+              this.lastModelProgress = Math.min(1, Math.max(0, event.progress / 100));
+              this.callbacks.onModelProgress?.(this.lastModelProgress);
+              this.emitEstimate();
             }
           },
         });
         this.tts = tts;
+        this.modelLoadMs = Date.now() - startedAt;
+        this.lastModelProgress = 1;
         this.callbacks.onModelProgress?.(1);
+        this.emitEstimate();
         return tts;
       })();
       this.loadPromise.catch(() => {
@@ -155,6 +193,36 @@ export class SpeechEngine {
     this.currentIndex = 0;
     this.clearCache();
     this.setState("idle");
+    this.emitEstimate();
+  }
+
+  /** Seconds until audio can start from `index`: remaining model load + first-chunk synthesis. */
+  estimateSecondsToAudio(index: number = this.currentIndex): number {
+    if (index < 0 || index >= this.chunks.length || this.cache.has(index)) return 0;
+    let ms = 0;
+    if (!this.tts) {
+      const remaining = this.loadPromise ? 1 - this.lastModelProgress : 1;
+      ms += this.modelLoadMs * Math.max(0, Math.min(1, remaining));
+    }
+    ms += this.chunks[index].length * this.msPerChar;
+    return Math.max(1, Math.round(ms / 1000));
+  }
+
+  private emitEstimate(): void {
+    this.callbacks.onEstimateChange?.(this.estimateSecondsToAudio());
+  }
+
+  /** Folds a measured synthesis run into the rolling ms-per-character rate and persists it. */
+  private recordSynthesisRate(chars: number, elapsedMs: number): void {
+    if (chars <= 0 || elapsedMs <= 0) return;
+    const perChar = elapsedMs / chars;
+    this.rateSamples = Math.min(this.rateSamples + 1, 10);
+    this.msPerChar += (perChar - this.msPerChar) / this.rateSamples;
+    try {
+      localStorage.setItem(RATE_STORAGE_KEY, String(Math.round(this.msPerChar)));
+    } catch {
+      // Non-fatal: estimates just won't carry over to the next session.
+    }
   }
 
   setVoice(voiceId: string | null): void {
@@ -176,6 +244,7 @@ export class SpeechEngine {
   private onSynthParamsChanged(): void {
     const wasPlaying = this.state === "playing" || this.state === "buffering";
     this.clearCache();
+    this.emitEstimate();
     if (wasPlaying) void this.playFrom(this.currentIndex);
   }
 
@@ -194,13 +263,16 @@ export class SpeechEngine {
 
     const job = (async () => {
       const tts = await this.ensureModel();
+      const synthStart = Date.now();
       const raw = await tts.generate(this.chunks[index], {
         voice: this.voice as VoiceId,
         speed: this.speed,
       });
+      this.recordSynthesisRate(this.chunks[index].length, Date.now() - synthStart);
       const url = URL.createObjectURL(raw.toBlob());
       this.cache.set(index, url);
       this.inflight.delete(index);
+      this.emitEstimate();
       return url;
     })();
 
@@ -232,6 +304,7 @@ export class SpeechEngine {
     this.currentIndex = index;
     this.callbacks.onChunkChange?.(index, this.chunks.length);
     this.setState(this.cache.has(index) ? "playing" : "buffering");
+    this.emitEstimate();
 
     let url: string | null;
     try {
@@ -294,6 +367,7 @@ export class SpeechEngine {
     this.currentIndex = 0;
     this.setState("idle");
     this.callbacks.onChunkChange?.(0, this.chunks.length);
+    this.emitEstimate();
   }
 
   private stopInternal(): void {

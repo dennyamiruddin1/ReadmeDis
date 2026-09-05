@@ -1,5 +1,6 @@
 "use client";
 
+import { type ReactNode, useEffect, useState } from "react";
 import { KOKORO_VOICES, type PlaybackState } from "@/lib/tts/speechEngine";
 
 interface PlayerControlsProps {
@@ -17,9 +18,39 @@ interface PlayerControlsProps {
   onRateChange: (rate: number) => void;
   /** 0..1 download progress for the Kokoro model on first use. */
   modelProgress: number;
+  /** True once the model has finished loading this session. */
+  modelReady: boolean;
+  /** Estimated seconds until audio starts from the current position (0 = already buffered). */
+  estimatedSeconds: number;
 }
 
 const ACCENTS = ["American English", "British English"] as const;
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s ? `${m}m ${s}s` : `${m}m`;
+}
+
+/**
+ * Ticks a whole-second counter for as long as it's mounted. Callers gate the
+ * mount (e.g. only while buffering), so it resets to 0 on every new wait.
+ */
+function ElapsedSeconds({ children }: { children: (elapsed: number) => ReactNode }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return <>{children(elapsed)}</>;
+}
+
+function etaLabel(elapsed: number, estimatedSeconds: number): string {
+  if (estimatedSeconds <= 0) return `${elapsed}s`;
+  if (elapsed >= estimatedSeconds) return `${elapsed}s elapsed — almost there…`;
+  return `${elapsed}s / ~${formatDuration(estimatedSeconds)}`;
+}
 
 export function PlayerControls({
   playbackState,
@@ -35,6 +66,8 @@ export function PlayerControls({
   rate,
   onRateChange,
   modelProgress,
+  modelReady,
+  estimatedSeconds,
 }: PlayerControlsProps) {
   const percent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
   const isLoading = playbackState === "loading";
@@ -55,6 +88,13 @@ export function PlayerControls({
       {isLoading && (
         <p className="text-center text-xs text-gray-500 dark:text-gray-400">
           🧠 Downloading the Kokoro voice model… {Math.round(modelProgress * 100)}%
+          <ElapsedSeconds>
+            {(elapsed) => (
+              <span className="block text-[11px] opacity-80">
+                {etaLabel(elapsed, estimatedSeconds)}
+              </span>
+            )}
+          </ElapsedSeconds>
           <span className="block text-[11px] opacity-70">
             One-time download, cached by your browser afterwards.
           </span>
@@ -62,7 +102,17 @@ export function PlayerControls({
       )}
       {isBuffering && (
         <p className="text-center text-xs text-gray-500 dark:text-gray-400">
-          🎧 Synthesising audio…
+          🎧 Synthesising audio…{" "}
+          <ElapsedSeconds>{(elapsed) => etaLabel(elapsed, estimatedSeconds)}</ElapsedSeconds>
+        </p>
+      )}
+      {!isBusy && playbackState !== "playing" && estimatedSeconds > 0 && (
+        <p className="text-center text-[11px] text-gray-400 dark:text-gray-500">
+          {modelReady
+            ? `⏱️ ~${formatDuration(estimatedSeconds)} to synthesise this passage before playback.`
+            : `⏱️ First play downloads the voice model — about ${formatDuration(
+                estimatedSeconds,
+              )} before audio starts.`}
         </p>
       )}
 

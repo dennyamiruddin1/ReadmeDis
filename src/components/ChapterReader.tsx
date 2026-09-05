@@ -12,11 +12,13 @@ export function ChapterReader({ title, chunks, currentChunkIndex }: ChapterReade
   const activeRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    activeRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Keep the highlighted chunk visible, but only scroll within this pane --
+    // `nearest` + the container's own overflow stop it from moving the page.
+    activeRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [currentChunkIndex]);
 
   return (
-    <article className="h-full overflow-y-auto rounded-2xl border-2 border-brand-blue bg-white p-6 leading-8 shadow-sm dark:bg-[#123241]">
+    <article className="h-full overflow-y-auto overscroll-contain rounded-2xl border-2 border-brand-blue bg-white p-6 leading-8 shadow-sm dark:bg-[#123241]">
       <h1 className="mb-4 text-xl font-semibold text-gray-900 dark:text-gray-50">📖 {title}</h1>
       <p className="text-gray-700 dark:text-gray-300">
         {chunks.map((chunk, index) => (
