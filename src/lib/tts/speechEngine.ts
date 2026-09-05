@@ -9,6 +9,8 @@ export interface SpeechEngineCallbacks {
   onStateChange?: (state: PlaybackState) => void;
   onChapterEnd?: () => void;
   onError?: (message: string) => void;
+  /** Non-fatal advisory (e.g. "first load is slow on iOS"); processing continues. */
+  onNotice?: (message: string) => void;
   /** Fired while the Kokoro model files download on first use. `ratio` is 0..1. */
   onModelProgress?: (ratio: number) => void;
   /**
@@ -22,13 +24,61 @@ export interface SpeechEngineCallbacks {
 /** Hugging Face repo for the ONNX build that kokoro-js loads. */
 const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
 
-const MAX_CHUNK_LENGTH = 220;
+/** Same-origin location the app serves the onnxruntime-web runtime from (see scripts/sync-ort-wasm.mjs). */
+const ORT_WASM_PATH = "/ort/";
 
+/** Shorter chunks on phones/tablets => the first audio arrives sooner. */
+const CHUNK_LENGTH = { desktop: 220, mobile: 140 };
+
+type EstimateKey = "wasm" | "wasmMobile" | "webgpu";
 /** Fallback guess for the one-time model download+init, refined once we've timed a real load. */
-const MODEL_LOAD_ESTIMATE_MS = { wasm: 15000, webgpu: 30000 };
+const MODEL_LOAD_ESTIMATE_MS: Record<EstimateKey, number> = {
+  wasm: 18000,
+  wasmMobile: 45000,
+  webgpu: 30000,
+};
 /** Fallback ms-per-character synthesis rate, refined from measured runs and persisted. */
-const MS_PER_CHAR_DEFAULT = { wasm: 55, webgpu: 14 };
+const MS_PER_CHAR_DEFAULT: Record<EstimateKey, number> = { wasm: 55, wasmMobile: 130, webgpu: 14 };
 const RATE_STORAGE_KEY = "readmedis:kokoro:ms-per-char";
+
+/** Hard ceilings so a wedged load/synthesis surfaces an error instead of spinning forever. */
+const MODEL_LOAD_TIMEOUT_MS = { desktop: 180000, mobile: 420000 };
+const SYNTH_TIMEOUT_MS = { desktop: 90000, mobile: 240000 };
+/** If model-download progress stops advancing for this long, show a "still working" notice. */
+const PROGRESS_STALL_MS = 45000;
+
+/** iOS/iPadOS: no reliable WebGPU, tight per-tab memory -- always take the small WASM path there. */
+function isAppleMobile(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  return (
+    /\b(iPad|iPhone|iPod)\b/.test(ua) ||
+    // iPadOS reports as desktop Safari but is the only "Mac" with a touch screen.
+    (ua.includes("Macintosh") && navigator.maxTouchPoints > 1)
+  );
+}
+
+function isMobile(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return isAppleMobile() || /\bAndroid\b/.test(navigator.userAgent);
+}
+
+/** Rejects with `message` if `promise` hasn't settled within `ms`. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 export interface KokoroVoice {
   id: string;
@@ -72,12 +122,12 @@ export const KOKORO_VOICES: KokoroVoice[] = [
 export const DEFAULT_VOICE_ID = "af_heart";
 
 /** Splits text into short, sentence-aware chunks so pause/resume/skip stay responsive and reliable. */
-export function chunkText(text: string): string[] {
+export function chunkText(text: string, maxLength: number = CHUNK_LENGTH.desktop): string[] {
   const sentences = text.match(/[^.!?\n]+[.!?]+(\s+|$)|[^.!?\n]+$/g) ?? [text];
   const chunks: string[] = [];
   let buffer = "";
   for (const sentence of sentences) {
-    if (buffer.length > 0 && buffer.length + sentence.length > MAX_CHUNK_LENGTH) {
+    if (buffer.length > 0 && buffer.length + sentence.length > maxLength) {
       chunks.push(buffer.trim());
       buffer = sentence;
     } else {
@@ -120,13 +170,19 @@ export class SpeechEngine {
   private playToken = 0;
 
   private device: "wasm" | "webgpu" = "wasm";
+  private mobile = false;
   private modelLoadMs = MODEL_LOAD_ESTIMATE_MS.wasm;
   private lastModelProgress = 0;
+  private lastProgressAt = 0;
+  private progressWatchdog: ReturnType<typeof setInterval> | null = null;
   private msPerChar = MS_PER_CHAR_DEFAULT.wasm;
   private rateSamples = 0;
 
   constructor(callbacks: SpeechEngineCallbacks = {}) {
     this.callbacks = callbacks;
+    this.mobile = isMobile();
+    this.modelLoadMs = MODEL_LOAD_ESTIMATE_MS[this.estimateKey()];
+    this.msPerChar = MS_PER_CHAR_DEFAULT[this.estimateKey()];
     try {
       const saved = Number(localStorage.getItem(RATE_STORAGE_KEY));
       if (Number.isFinite(saved) && saved > 0) {
@@ -136,6 +192,11 @@ export class SpeechEngine {
     } catch {
       // localStorage unavailable (private mode, SSR) -- fall back to the default rate.
     }
+  }
+
+  private estimateKey(): EstimateKey {
+    if (this.device === "webgpu") return "webgpu";
+    return this.mobile ? "wasmMobile" : "wasm";
   }
 
   static isSupported(): boolean {
@@ -148,40 +209,109 @@ export class SpeechEngine {
     this.callbacks.onStateChange?.(state);
   }
 
+  /** Start the one-time model download early (e.g. when a book opens) so the first play is quicker. */
+  preload(): void {
+    if (this.tts || this.loadPromise) return;
+    void this.ensureModel().catch((err: unknown) => {
+      this.callbacks.onNotice?.(
+        err instanceof Error
+          ? err.message
+          : "Couldn't preload the voice model; it will retry when you press play.",
+      );
+    });
+  }
+
+  private startProgressWatchdog(): void {
+    this.stopProgressWatchdog();
+    this.lastProgressAt = Date.now();
+    let warned = false;
+    this.progressWatchdog = setInterval(() => {
+      if (this.tts || warned) return;
+      if (Date.now() - this.lastProgressAt > PROGRESS_STALL_MS) {
+        warned = true;
+        this.callbacks.onNotice?.(
+          this.mobile
+            ? "Still working -- the first run can take a few minutes on iPhone/iPad. Keep this tab open and the screen on."
+            : "Still working on the first load -- the model files are large and can take a while.",
+        );
+      }
+    }, 5000);
+  }
+
+  private stopProgressWatchdog(): void {
+    if (this.progressWatchdog !== null) {
+      clearInterval(this.progressWatchdog);
+      this.progressWatchdog = null;
+    }
+  }
+
   private async ensureModel(): Promise<KokoroTTS> {
     if (this.tts) return this.tts;
     if (!this.loadPromise) {
       if (this.state === "idle") this.setState("loading");
-      const useWebGPU = typeof navigator !== "undefined" && "gpu" in navigator;
+      this.mobile = isMobile();
+      // iOS/iPadOS Safari's WebGPU is immature and its per-tab memory ceiling is
+      // low, so force the small quantized model on the WASM backend there.
+      const useWebGPU = !isAppleMobile() && typeof navigator !== "undefined" && "gpu" in navigator;
       this.device = useWebGPU ? "webgpu" : "wasm";
-      this.modelLoadMs = MODEL_LOAD_ESTIMATE_MS[this.device];
-      if (this.rateSamples === 0) this.msPerChar = MS_PER_CHAR_DEFAULT[this.device];
+      this.modelLoadMs = MODEL_LOAD_ESTIMATE_MS[this.estimateKey()];
+      if (this.rateSamples === 0) this.msPerChar = MS_PER_CHAR_DEFAULT[this.estimateKey()];
       this.lastModelProgress = 0;
       this.emitEstimate();
+
       const startedAt = Date.now();
-      this.loadPromise = (async () => {
-        const { KokoroTTS } = await import("kokoro-js");
-        const tts = await KokoroTTS.from_pretrained(MODEL_ID, {
-          dtype: useWebGPU ? "fp32" : "q8",
-          device: useWebGPU ? "webgpu" : "wasm",
-          progress_callback: (event: KokoroProgressEvent) => {
-            if (typeof event.progress === "number") {
-              this.lastModelProgress = Math.min(1, Math.max(0, event.progress / 100));
-              this.callbacks.onModelProgress?.(this.lastModelProgress);
-              this.emitEstimate();
-            }
-          },
-        });
+      const timeoutMs = this.mobile ? MODEL_LOAD_TIMEOUT_MS.mobile : MODEL_LOAD_TIMEOUT_MS.desktop;
+
+      const load = (async () => {
+        const { KokoroTTS, env } = await import("kokoro-js");
+        // Serve the WASM runtime same-origin: faster on mobile (no CDN hop) and
+        // required under the app's COOP/COEP headers, which in turn let
+        // onnxruntime run multi-threaded.
+        try {
+          env.wasmPaths = ORT_WASM_PATH;
+        } catch {
+          // Older kokoro-js without the setter -- the CDN default still works.
+        }
+        this.startProgressWatchdog();
+        try {
+          return await KokoroTTS.from_pretrained(MODEL_ID, {
+            dtype: useWebGPU ? "fp32" : "q8",
+            device: useWebGPU ? "webgpu" : "wasm",
+            progress_callback: (event: KokoroProgressEvent) => {
+              this.lastProgressAt = Date.now();
+              if (typeof event.progress === "number") {
+                this.lastModelProgress = Math.min(1, Math.max(0, event.progress / 100));
+                this.callbacks.onModelProgress?.(this.lastModelProgress);
+                this.emitEstimate();
+              }
+            },
+          });
+        } finally {
+          this.stopProgressWatchdog();
+        }
+      })();
+
+      this.loadPromise = withTimeout(
+        load,
+        timeoutMs,
+        this.mobile
+          ? "The voice model is taking too long to load. This is usually a slow connection or Safari running low on memory -- try again on Wi-Fi, or close other tabs and apps."
+          : "The voice model took too long to load. Check your connection and try again.",
+      ).then((tts) => {
         this.tts = tts;
         this.modelLoadMs = Date.now() - startedAt;
         this.lastModelProgress = 1;
         this.callbacks.onModelProgress?.(1);
+        if (this.state === "loading") this.setState("idle");
         this.emitEstimate();
         return tts;
-      })();
+      });
+
       this.loadPromise.catch(() => {
-        // Allow a later play() to retry a failed download.
+        // Allow a later play() to retry a failed/timed-out download.
+        this.stopProgressWatchdog();
         this.loadPromise = null;
+        if (this.state === "loading") this.setState("idle");
       });
     }
     return this.loadPromise;
@@ -189,7 +319,7 @@ export class SpeechEngine {
 
   loadText(text: string): void {
     this.stopInternal();
-    this.chunks = chunkText(text);
+    this.chunks = chunkText(text, this.mobile ? CHUNK_LENGTH.mobile : CHUNK_LENGTH.desktop);
     this.currentIndex = 0;
     this.clearCache();
     this.setState("idle");
@@ -264,10 +394,11 @@ export class SpeechEngine {
     const job = (async () => {
       const tts = await this.ensureModel();
       const synthStart = Date.now();
-      const raw = await tts.generate(this.chunks[index], {
-        voice: this.voice as VoiceId,
-        speed: this.speed,
-      });
+      const raw = await withTimeout(
+        tts.generate(this.chunks[index], { voice: this.voice as VoiceId, speed: this.speed }),
+        this.mobile ? SYNTH_TIMEOUT_MS.mobile : SYNTH_TIMEOUT_MS.desktop,
+        "Synthesising this passage is taking too long on this device. Try a lower speed, a shorter chapter, or a desktop browser.",
+      );
       this.recordSynthesisRate(this.chunks[index].length, Date.now() - synthStart);
       const url = URL.createObjectURL(raw.toBlob());
       this.cache.set(index, url);
@@ -395,6 +526,7 @@ export class SpeechEngine {
   /** Releases audio + object URLs. Call on unmount. */
   dispose(): void {
     this.stopInternal();
+    this.stopProgressWatchdog();
     this.clearCache();
   }
 

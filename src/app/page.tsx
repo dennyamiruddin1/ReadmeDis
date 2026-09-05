@@ -66,7 +66,10 @@ export default function Home() {
 
     const engine = new SpeechEngine({
       onChunkChange: (current, total) => setProgress({ current, total }),
-      onStateChange: (state) => setPlaybackState(state),
+      onStateChange: (state) => {
+        setPlaybackState(state);
+        if (state === "playing") setError(null); // clear any "still working" notice
+      },
       onModelProgress: (ratio) => setModelProgress(ratio),
       onEstimateChange: (seconds) => setEstimatedSeconds(seconds),
       onChapterEnd: () => {
@@ -76,7 +79,8 @@ export default function Home() {
           selectChapterRef.current(idx + 1, true);
         }
       },
-      onError: (message) => setError(`Speech playback error: ${message}`),
+      onNotice: (message) => setError(message),
+      onError: (message) => setError(message),
     });
     engine.setVoice(selectedVoiceId);
     engine.setRate(rate);
@@ -108,6 +112,8 @@ export default function Home() {
       const parsedBook = await parser.parse(file);
       setBook(parsedBook);
       loadChapter(parsedBook, 0, false);
+      // Start fetching the voice model now, while the reader picks a chapter.
+      engineRef.current?.preload();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to parse this file.");
     } finally {
