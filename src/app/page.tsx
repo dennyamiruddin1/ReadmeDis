@@ -1,69 +1,232 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { ChapterList } from "@/components/ChapterList";
+import { ChapterReader } from "@/components/ChapterReader";
+import { FileDropzone } from "@/components/FileDropzone";
+import { PlayerControls } from "@/components/PlayerControls";
+import { getParserForFile, getSupportedExtensions } from "@/lib/parsers/registry";
+import type { ParsedBook } from "@/lib/parsers/types";
+import { SpeechEngine, type PlaybackState } from "@/lib/tts/speechEngine";
 
 export default function Home() {
+  const [isSupported, setIsSupported] = useState(true);
+  const [book, setBook] = useState<ParsedBook | null>(null);
+  const [chapterIndex, setChapterIndex] = useState(0);
+  const [chunks, setChunks] = useState<string[]>([]);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState("");
+  const [rate, setRate] = useState(1);
+  const [pitch, setPitch] = useState(1);
+  const [isParsing, setIsParsing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const engineRef = useRef<SpeechEngine | null>(null);
+  const bookRef = useRef<ParsedBook | null>(null);
+  const chapterIndexRef = useRef(0);
+  const selectChapterRef = useRef<(index: number, autoPlay: boolean) => void>(() => {});
+
+  useEffect(() => {
+    bookRef.current = book;
+  }, [book]);
+
+  useEffect(() => {
+    chapterIndexRef.current = chapterIndex;
+  }, [chapterIndex]);
+
+  const loadChapter = (targetBook: ParsedBook, index: number, autoPlay: boolean) => {
+    const engine = engineRef.current;
+    const chapter = targetBook.chapters[index];
+    if (!engine || !chapter) return;
+    engine.loadText(chapter.text);
+    setChapterIndex(index);
+    setChunks(engine.getChunks());
+    setProgress({ current: 0, total: engine.getChunks().length });
+    if (autoPlay) engine.play();
+  };
+
+  const selectChapter = (index: number, autoPlay: boolean) => {
+    if (bookRef.current) loadChapter(bookRef.current, index, autoPlay);
+  };
+
+  useEffect(() => {
+    selectChapterRef.current = selectChapter;
+  });
+
+  useEffect(() => {
+    if (!SpeechEngine.isSupported()) {
+      // One-time browser capability check, not state derived from props/state.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setIsSupported(false);
+      return;
+    }
+
+    const engine = new SpeechEngine({
+      onChunkChange: (current, total) => setProgress({ current, total }),
+      onStateChange: (state) => setPlaybackState(state),
+      onChapterEnd: () => {
+        const currentBook = bookRef.current;
+        const idx = chapterIndexRef.current;
+        if (currentBook && idx + 1 < currentBook.chapters.length) {
+          selectChapterRef.current(idx + 1, true);
+        }
+      },
+      onError: (message) => setError(`Speech playback error: ${message}`),
+    });
+    engineRef.current = engine;
+
+    SpeechEngine.getVoices().then((loadedVoices) => {
+      setVoices(loadedVoices);
+      const defaultVoice = loadedVoices.find((v) => v.lang.startsWith("en")) ?? loadedVoices[0];
+      if (defaultVoice) setSelectedVoiceURI(defaultVoice.voiceURI);
+    });
+
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, []);
+
+  useEffect(() => {
+    const voice = voices.find((v) => v.voiceURI === selectedVoiceURI) ?? null;
+    engineRef.current?.setVoice(voice);
+  }, [voices, selectedVoiceURI]);
+
+  useEffect(() => {
+    engineRef.current?.setRate(rate);
+  }, [rate]);
+
+  useEffect(() => {
+    engineRef.current?.setPitch(pitch);
+  }, [pitch]);
+
+  const handleFileSelected = async (file: File) => {
+    setError(null);
+    setIsParsing(true);
+    engineRef.current?.stop();
+    setBook(null);
+    try {
+      const parser = getParserForFile(file);
+      const parsedBook = await parser.parse(file);
+      setBook(parsedBook);
+      loadChapter(parsedBook, 0, false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to parse this file.");
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const handlePlayPause = () => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (playbackState === "playing") engine.pause();
+    else if (playbackState === "paused") engine.resume();
+    else engine.play();
+  };
+
+  const handleStop = () => {
+    engineRef.current?.stop();
+    setProgress((p) => ({ current: 0, total: p.total }));
+  };
+
+  const handlePrevChapter = () => {
+    if (chapterIndex > 0) selectChapter(chapterIndex - 1, playbackState === "playing");
+  };
+
+  const handleNextChapter = () => {
+    if (book && chapterIndex + 1 < book.chapters.length) {
+      selectChapter(chapterIndex + 1, playbackState === "playing");
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 p-6">
+      <header>
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">ReadmeDis</h1>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          Turn your ebooks into audiobooks, right in your browser.
+        </p>
+      </header>
+
+      {!isSupported && (
+        <p className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+          Your browser doesn&apos;t support speech synthesis. Try the latest Chrome, Edge, or Firefox.
+        </p>
+      )}
+
+      {error && (
+        <p className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
+          {error}
+        </p>
+      )}
+
+      {!book ? (
+        <FileDropzone
+          extensions={getSupportedExtensions()}
+          onFileSelected={handleFileSelected}
+          disabled={!isSupported || isParsing}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+      ) : (
+        <div className="flex flex-1 flex-col gap-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-3">
+              {book.coverUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={book.coverUrl} alt="" className="h-16 w-11 rounded object-cover shadow" />
+              )}
+              <div>
+                <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">{book.title}</h2>
+                {book.author && (
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">{book.author}</p>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                engineRef.current?.stop();
+                setBook(null);
+                setChunks([]);
+              }}
+              className="text-sm text-indigo-600 hover:underline dark:text-indigo-400"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+              Load a different book
+            </button>
+          </div>
+
+          <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-[220px_1fr] md:[&>*]:h-[55vh]">
+            <ChapterList
+              chapters={book.chapters}
+              currentIndex={chapterIndex}
+              onSelect={(index) => selectChapter(index, true)}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            <ChapterReader
+              title={book.chapters[chapterIndex].title}
+              chunks={chunks}
+              currentChunkIndex={progress.current}
+            />
+          </div>
+
+          <PlayerControls
+            playbackState={playbackState}
+            onPlayPause={handlePlayPause}
+            onStop={handleStop}
+            onPrevChapter={handlePrevChapter}
+            onNextChapter={handleNextChapter}
+            hasPrevChapter={chapterIndex > 0}
+            hasNextChapter={chapterIndex + 1 < book.chapters.length}
+            progress={progress}
+            voices={voices}
+            selectedVoiceURI={selectedVoiceURI}
+            onVoiceChange={setSelectedVoiceURI}
+            rate={rate}
+            onRateChange={setRate}
+            pitch={pitch}
+            onPitchChange={setPitch}
+          />
         </div>
-      </main>
+      )}
     </div>
   );
 }
