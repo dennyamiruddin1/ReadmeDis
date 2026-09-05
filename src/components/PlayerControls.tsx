@@ -1,6 +1,6 @@
 "use client";
 
-import type { PlaybackState } from "@/lib/tts/speechEngine";
+import { KOKORO_VOICES, type PlaybackState } from "@/lib/tts/speechEngine";
 
 interface PlayerControlsProps {
   playbackState: PlaybackState;
@@ -11,15 +11,15 @@ interface PlayerControlsProps {
   hasPrevChapter: boolean;
   hasNextChapter: boolean;
   progress: { current: number; total: number };
-  voices: SpeechSynthesisVoice[];
-  selectedVoiceURI: string;
-  onVoiceChange: (uri: string) => void;
-  onRefreshVoices: () => void;
+  selectedVoiceId: string;
+  onVoiceChange: (id: string) => void;
   rate: number;
   onRateChange: (rate: number) => void;
-  pitch: number;
-  onPitchChange: (pitch: number) => void;
+  /** 0..1 download progress for the Kokoro model on first use. */
+  modelProgress: number;
 }
+
+const ACCENTS = ["American English", "British English"] as const;
 
 export function PlayerControls({
   playbackState,
@@ -30,16 +30,18 @@ export function PlayerControls({
   hasPrevChapter,
   hasNextChapter,
   progress,
-  voices,
-  selectedVoiceURI,
+  selectedVoiceId,
   onVoiceChange,
-  onRefreshVoices,
   rate,
   onRateChange,
-  pitch,
-  onPitchChange,
+  modelProgress,
 }: PlayerControlsProps) {
   const percent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+  const isLoading = playbackState === "loading";
+  const isBuffering = playbackState === "buffering";
+  const isBusy = isLoading || isBuffering;
+
+  const playButtonLabel = playbackState === "playing" ? "⏸" : isBusy ? "…" : "▶";
 
   return (
     <div className="flex flex-col gap-4 rounded-2xl border-2 border-brand-blue bg-white p-4 shadow-sm dark:bg-[#123241]">
@@ -49,6 +51,20 @@ export function PlayerControls({
           style={{ width: `${percent}%` }}
         />
       </div>
+
+      {isLoading && (
+        <p className="text-center text-xs text-gray-500 dark:text-gray-400">
+          🧠 Downloading the Kokoro voice model… {Math.round(modelProgress * 100)}%
+          <span className="block text-[11px] opacity-70">
+            One-time download, cached by your browser afterwards.
+          </span>
+        </p>
+      )}
+      {isBuffering && (
+        <p className="text-center text-xs text-gray-500 dark:text-gray-400">
+          🎧 Synthesising audio…
+        </p>
+      )}
 
       <div className="flex items-center justify-center gap-4">
         <button
@@ -61,10 +77,11 @@ export function PlayerControls({
         </button>
         <button
           onClick={onPlayPause}
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-yellow text-xl text-gray-900 shadow-md ring-4 ring-brand-blue/40 hover:brightness-95"
+          disabled={isLoading}
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-yellow text-xl text-gray-900 shadow-md ring-4 ring-brand-blue/40 hover:brightness-95 disabled:opacity-60"
           aria-label={playbackState === "playing" ? "Pause" : "Play"}
         >
-          {playbackState === "playing" ? "⏸" : "▶"}
+          {playButtonLabel}
         </button>
         <button
           onClick={onStop}
@@ -83,31 +100,24 @@ export function PlayerControls({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
           🎙️ Voice
-          <div className="flex items-center gap-1.5">
-            <select
-              value={selectedVoiceURI}
-              onChange={(e) => onVoiceChange(e.target.value)}
-              className="w-full min-w-0 rounded-full border-2 border-brand-blue bg-white px-3 py-1.5 text-sm text-gray-800 dark:bg-[#0f2733] dark:text-gray-100"
-            >
-              {voices.map((voice) => (
-                <option key={voice.voiceURI} value={voice.voiceURI}>
-                  {voice.name} ({voice.lang})
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={onRefreshVoices}
-              title="Re-scan for newly installed voices"
-              aria-label="Refresh voice list"
-              className="shrink-0 rounded-full border-2 border-brand-blue p-1.5 text-gray-700 hover:bg-brand-blue/15 dark:text-gray-200"
-            >
-              🔄
-            </button>
-          </div>
+          <select
+            value={selectedVoiceId}
+            onChange={(e) => onVoiceChange(e.target.value)}
+            className="w-full min-w-0 rounded-full border-2 border-brand-blue bg-white px-3 py-1.5 text-sm text-gray-800 dark:bg-[#0f2733] dark:text-gray-100"
+          >
+            {ACCENTS.map((accent) => (
+              <optgroup key={accent} label={accent}>
+                {KOKORO_VOICES.filter((v) => v.accent === accent).map((voice) => (
+                  <option key={voice.id} value={voice.id}>
+                    {voice.name} ({voice.gender})
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
         </label>
 
         <label className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
@@ -120,19 +130,6 @@ export function PlayerControls({
             step={0.05}
             value={rate}
             onChange={(e) => onRateChange(Number(e.target.value))}
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
-          🎈 Pitch: {pitch.toFixed(2)}
-          <input
-            type="range"
-            className="accent-brand-blue"
-            min={0}
-            max={2}
-            step={0.05}
-            value={pitch}
-            onChange={(e) => onPitchChange(Number(e.target.value))}
           />
         </label>
       </div>

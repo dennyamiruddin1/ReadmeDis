@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChapterList } from "@/components/ChapterList";
 import { ChapterReader } from "@/components/ChapterReader";
 import { FileDropzone } from "@/components/FileDropzone";
 import { PlayerControls } from "@/components/PlayerControls";
 import { getParserForFile, getSupportedExtensions } from "@/lib/parsers/registry";
 import type { ParsedBook } from "@/lib/parsers/types";
-import { SpeechEngine, type PlaybackState } from "@/lib/tts/speechEngine";
+import { DEFAULT_VOICE_ID, SpeechEngine, type PlaybackState } from "@/lib/tts/speechEngine";
 
 export default function Home() {
   const [isSupported, setIsSupported] = useState(true);
@@ -16,10 +16,9 @@ export default function Home() {
   const [chunks, setChunks] = useState<string[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [playbackState, setPlaybackState] = useState<PlaybackState>("idle");
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoiceURI, setSelectedVoiceURI] = useState("");
+  const [selectedVoiceId, setSelectedVoiceId] = useState(DEFAULT_VOICE_ID);
   const [rate, setRate] = useState(1);
-  const [pitch, setPitch] = useState(1);
+  const [modelProgress, setModelProgress] = useState(0);
   const [isParsing, setIsParsing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,20 +54,6 @@ export default function Home() {
     selectChapterRef.current = selectChapter;
   });
 
-  // Re-scans the OS voice list. Safari (especially iOS) often only picks up a
-  // newly downloaded voice once this runs again -- a plain page reload isn't
-  // always enough, so this is exposed both on tab-refocus and via a manual button.
-  const refreshVoices = useCallback(() => {
-    SpeechEngine.getVoices().then((loadedVoices) => {
-      setVoices(loadedVoices);
-      setSelectedVoiceURI((current) => {
-        if (current && loadedVoices.some((v) => v.voiceURI === current)) return current;
-        const defaultVoice = loadedVoices.find((v) => v.lang.startsWith("en")) ?? loadedVoices[0];
-        return defaultVoice?.voiceURI ?? current;
-      });
-    });
-  }, []);
-
   useEffect(() => {
     if (!SpeechEngine.isSupported()) {
       // One-time browser capability check, not state derived from props/state.
@@ -80,6 +65,7 @@ export default function Home() {
     const engine = new SpeechEngine({
       onChunkChange: (current, total) => setProgress({ current, total }),
       onStateChange: (state) => setPlaybackState(state),
+      onModelProgress: (ratio) => setModelProgress(ratio),
       onChapterEnd: () => {
         const currentBook = bookRef.current;
         const idx = chapterIndexRef.current;
@@ -89,35 +75,25 @@ export default function Home() {
       },
       onError: (message) => setError(`Speech playback error: ${message}`),
     });
+    engine.setVoice(selectedVoiceId);
+    engine.setRate(rate);
     engineRef.current = engine;
 
-    refreshVoices();
-
     return () => {
-      window.speechSynthesis.cancel();
+      engine.dispose();
+      engineRef.current = null;
     };
-  }, [refreshVoices]);
+    // Engine is created once; voice/rate are synced by the effects below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") refreshVoices();
-    };
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, [refreshVoices]);
-
-  useEffect(() => {
-    const voice = voices.find((v) => v.voiceURI === selectedVoiceURI) ?? null;
-    engineRef.current?.setVoice(voice);
-  }, [voices, selectedVoiceURI]);
+    engineRef.current?.setVoice(selectedVoiceId);
+  }, [selectedVoiceId]);
 
   useEffect(() => {
     engineRef.current?.setRate(rate);
   }, [rate]);
-
-  useEffect(() => {
-    engineRef.current?.setPitch(pitch);
-  }, [pitch]);
 
   const handleFileSelected = async (file: File) => {
     setError(null);
@@ -139,7 +115,7 @@ export default function Home() {
   const handlePlayPause = () => {
     const engine = engineRef.current;
     if (!engine) return;
-    if (playbackState === "playing") engine.pause();
+    if (playbackState === "playing" || playbackState === "buffering") engine.pause();
     else if (playbackState === "paused") engine.resume();
     else engine.play();
   };
@@ -182,7 +158,8 @@ export default function Home() {
 
         {!isSupported && (
           <p className="rounded-2xl border-2 border-brand-yellow bg-brand-yellow/25 p-4 text-sm text-gray-900 dark:text-gray-50">
-            Your browser doesn&apos;t support speech synthesis. Try the latest Chrome, Edge, or Firefox.
+            Your browser can&apos;t run the Kokoro voice model (WebAssembly is unavailable). Try the
+            latest Chrome, Edge, or Firefox.
           </p>
         )}
 
@@ -251,14 +228,11 @@ export default function Home() {
               hasPrevChapter={chapterIndex > 0}
               hasNextChapter={chapterIndex + 1 < book.chapters.length}
               progress={progress}
-              voices={voices}
-              selectedVoiceURI={selectedVoiceURI}
-              onVoiceChange={setSelectedVoiceURI}
-              onRefreshVoices={refreshVoices}
+              selectedVoiceId={selectedVoiceId}
+              onVoiceChange={setSelectedVoiceId}
               rate={rate}
               onRateChange={setRate}
-              pitch={pitch}
-              onPitchChange={setPitch}
+              modelProgress={modelProgress}
             />
           </div>
         )}
