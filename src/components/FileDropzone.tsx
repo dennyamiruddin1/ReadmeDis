@@ -32,12 +32,12 @@ export function FileDropzone({ extensions, onFileSelected, disabled }: FileDropz
         if (!disabled) handleFiles(e.dataTransfer.files);
       }}
       onClick={() => !disabled && inputRef.current?.click()}
-      className={`flex flex-col items-center justify-center gap-3 rounded-3xl border-4 border-dashed bg-white/60 p-12 text-center shadow-sm transition-colors dark:bg-slate-900/40 ${
+      className={`flex flex-col items-center justify-center gap-3 rounded-3xl border-4 border-dashed bg-white p-12 text-center shadow-sm transition-colors dark:bg-[#123241] ${
         disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
       } ${
         isDragging
-          ? "border-pink-400 bg-pink-50 dark:bg-pink-950/30"
-          : "border-sky-300 hover:border-sky-400 dark:border-sky-700"
+          ? "border-brand-yellow bg-brand-yellow/15"
+          : "border-brand-blue hover:bg-brand-blue/10"
       }`}
     >
       <input
@@ -48,10 +48,10 @@ export function FileDropzone({ extensions, onFileSelected, disabled }: FileDropz
         disabled={disabled}
         onChange={(e) => handleFiles(e.target.files)}
       />
-      <p className="text-lg font-medium text-sky-800 dark:text-sky-100">
+      <p className="text-lg font-medium text-gray-700 dark:text-gray-100">
         🫧 Drop a {label} file here, or click to browse
       </p>
-      <p className="text-sm text-sky-500 dark:text-sky-400">
+      <p className="text-sm text-gray-400 dark:text-gray-400">
         Everything runs locally in your browser -- nothing is uploaded anywhere.
       </p>
     </div>

@@ -144,30 +144,32 @@ export default function Home() {
   return (
     <div className="relative isolate min-h-screen overflow-hidden">
       <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-        <div className="absolute -left-16 -top-16 h-64 w-64 rounded-full bg-sky-300/40 blur-3xl" />
-        <div className="absolute -right-10 top-24 h-56 w-56 rounded-full bg-pink-300/30 blur-3xl" />
-        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-yellow-200/30 blur-3xl" />
-        <div className="absolute -bottom-20 -right-16 h-72 w-72 rounded-full bg-sky-300/30 blur-3xl" />
+        <div className="absolute -left-16 -top-16 h-64 w-64 rounded-full bg-brand-blue/30 blur-3xl" />
+        <div className="absolute -right-10 top-24 h-56 w-56 rounded-full bg-brand-yellow/30 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-brand-blue/20 blur-3xl" />
+        <div className="absolute -bottom-20 -right-16 h-72 w-72 rounded-full bg-brand-yellow/25 blur-3xl" />
       </div>
 
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-6">
         <header>
-          <h1 className="bg-gradient-to-r from-sky-500 to-pink-400 bg-clip-text text-3xl font-bold text-transparent">
-            🫧 ReadmeDis
-          </h1>
-          <p className="text-sm text-sky-600 dark:text-sky-300">
+          <h1 className="text-3xl font-bold text-foreground">🫧 ReadmeDis</h1>
+          <div className="mt-1.5 mb-1 flex h-1.5 w-28 overflow-hidden rounded-full">
+            <span className="w-1/2 bg-brand-blue" />
+            <span className="w-1/2 bg-brand-yellow" />
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-300">
             Turn your ebooks into audiobooks, right in your browser.
           </p>
         </header>
 
         {!isSupported && (
-          <p className="rounded-2xl border-2 border-pink-200 bg-pink-50 p-4 text-sm text-pink-700 dark:border-pink-900 dark:bg-pink-950/40 dark:text-pink-300">
+          <p className="rounded-2xl border-2 border-brand-yellow bg-brand-yellow/25 p-4 text-sm text-gray-900 dark:text-gray-50">
             Your browser doesn&apos;t support speech synthesis. Try the latest Chrome, Edge, or Firefox.
           </p>
         )}
 
         {error && (
-          <p className="rounded-2xl border-2 border-pink-200 bg-pink-50 p-4 text-sm text-pink-700 dark:border-pink-900 dark:bg-pink-950/40 dark:text-pink-300">
+          <p className="rounded-2xl border-2 border-brand-yellow bg-brand-yellow/25 p-4 text-sm text-gray-900 dark:text-gray-50">
             {error}
           </p>
         )}
@@ -191,9 +193,9 @@ export default function Home() {
                   />
                 )}
                 <div>
-                  <h2 className="font-semibold text-sky-900 dark:text-sky-50">{book.title}</h2>
+                  <h2 className="font-semibold text-gray-900 dark:text-gray-50">{book.title}</h2>
                   {book.author && (
-                    <p className="text-sm text-sky-500 dark:text-sky-400">{book.author}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{book.author}</p>
                   )}
                 </div>
               </div>
@@ -203,7 +205,7 @@ export default function Home() {
                   setBook(null);
                   setChunks([]);
                 }}
-                className="text-sm text-sky-600 hover:underline dark:text-sky-400"
+                className="rounded-full border-2 border-brand-blue px-3 py-1 text-sm text-gray-700 hover:bg-brand-blue/15 dark:text-gray-200"
               >
                 🔄 Load a different book
               </button>

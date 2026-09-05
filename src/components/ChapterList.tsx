@@ -10,8 +10,8 @@ interface ChapterListProps {
 
 export function ChapterList({ chapters, currentIndex, onSelect }: ChapterListProps) {
   return (
-    <nav className="flex h-full flex-col overflow-y-auto rounded-2xl border-2 border-sky-200 bg-white/70 shadow-sm dark:border-sky-800 dark:bg-slate-900/50">
-      <h2 className="sticky top-0 border-b-2 border-sky-200 bg-white px-4 py-3 text-sm font-semibold text-sky-500 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-400">
+    <nav className="flex h-full flex-col overflow-y-auto rounded-2xl border-2 border-brand-blue bg-white shadow-sm dark:bg-[#123241]">
+      <h2 className="sticky top-0 border-b-2 border-brand-blue bg-brand-blue px-4 py-3 text-sm font-semibold text-gray-900">
         🎈 Chapters
       </h2>
       <ul className="flex-1">
@@ -21,8 +21,8 @@ export function ChapterList({ chapters, currentIndex, onSelect }: ChapterListPro
               onClick={() => onSelect(index)}
               className={`w-full truncate px-4 py-2.5 text-left text-sm transition-colors ${
                 index === currentIndex
-                  ? "bg-gradient-to-r from-sky-400 to-pink-300 font-medium text-white"
-                  : "text-sky-700 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-900"
+                  ? "bg-brand-yellow font-medium text-gray-900"
+                  : "text-gray-700 hover:bg-brand-blue/15 dark:text-gray-200 dark:hover:bg-brand-blue/20"
               }`}
               title={chapter.title}
             >
