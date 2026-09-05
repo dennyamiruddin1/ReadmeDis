@@ -40,10 +40,10 @@ export function PlayerControls({
   const percent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
 
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+    <div className="flex flex-col gap-4 rounded-2xl border-2 border-sky-200 bg-white/70 p-4 shadow-sm dark:border-sky-800 dark:bg-slate-900/50">
+      <div className="h-2 w-full overflow-hidden rounded-full bg-sky-200 dark:bg-sky-800">
         <div
-          className="h-full rounded-full bg-indigo-600 transition-[width]"
+          className="h-full rounded-full bg-gradient-to-r from-sky-400 to-pink-400 transition-[width]"
           style={{ width: `${percent}%` }}
         />
       </div>
@@ -52,21 +52,21 @@ export function PlayerControls({
         <button
           onClick={onPrevChapter}
           disabled={!hasPrevChapter}
-          className="rounded-full p-2 text-zinc-600 hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="rounded-full p-2 text-sky-600 hover:bg-sky-100 disabled:opacity-30 dark:text-sky-300 dark:hover:bg-sky-800"
           aria-label="Previous chapter"
         >
           ⏮
         </button>
         <button
           onClick={onPlayPause}
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-600 text-xl text-white hover:bg-indigo-700"
+          className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-sky-400 to-pink-400 text-xl text-white shadow-md hover:from-sky-500 hover:to-pink-500"
           aria-label={playbackState === "playing" ? "Pause" : "Play"}
         >
           {playbackState === "playing" ? "⏸" : "▶"}
         </button>
         <button
           onClick={onStop}
-          className="rounded-full p-2 text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="rounded-full p-2 text-sky-600 hover:bg-sky-100 dark:text-sky-300 dark:hover:bg-sky-800"
           aria-label="Stop"
         >
           ⏹
@@ -74,7 +74,7 @@ export function PlayerControls({
         <button
           onClick={onNextChapter}
           disabled={!hasNextChapter}
-          className="rounded-full p-2 text-zinc-600 hover:bg-zinc-100 disabled:opacity-30 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          className="rounded-full p-2 text-sky-600 hover:bg-sky-100 disabled:opacity-30 dark:text-sky-300 dark:hover:bg-sky-800"
           aria-label="Next chapter"
         >
           ⏭
@@ -82,12 +82,12 @@ export function PlayerControls({
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Voice
+        <label className="flex flex-col gap-1 text-xs text-sky-500 dark:text-sky-400">
+          🎙️ Voice
           <select
             value={selectedVoiceURI}
             onChange={(e) => onVoiceChange(e.target.value)}
-            className="rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            className="rounded-full border-2 border-sky-300 bg-white px-3 py-1.5 text-sm text-sky-800 dark:border-sky-700 dark:bg-sky-900 dark:text-sky-100"
           >
             {voices.map((voice) => (
               <option key={voice.voiceURI} value={voice.voiceURI}>
@@ -97,10 +97,11 @@ export function PlayerControls({
           </select>
         </label>
 
-        <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Speed: {rate.toFixed(2)}x
+        <label className="flex flex-col gap-1 text-xs text-sky-500 dark:text-sky-400">
+          💨 Speed: {rate.toFixed(2)}x
           <input
             type="range"
+            className="accent-pink-400"
             min={0.5}
             max={2}
             step={0.05}
@@ -109,10 +110,11 @@ export function PlayerControls({
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
-          Pitch: {pitch.toFixed(2)}
+        <label className="flex flex-col gap-1 text-xs text-sky-500 dark:text-sky-400">
+          🎈 Pitch: {pitch.toFixed(2)}
           <input
             type="range"
+            className="accent-pink-400"
             min={0}
             max={2}
             step={0.05}

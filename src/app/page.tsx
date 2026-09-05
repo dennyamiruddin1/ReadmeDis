@@ -142,91 +142,106 @@ export default function Home() {
   };
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 p-6">
-      <header>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">ReadmeDis</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
-          Turn your ebooks into audiobooks, right in your browser.
-        </p>
-      </header>
+    <div className="relative isolate min-h-screen overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="absolute -left-16 -top-16 h-64 w-64 rounded-full bg-sky-300/40 blur-3xl" />
+        <div className="absolute -right-10 top-24 h-56 w-56 rounded-full bg-pink-300/30 blur-3xl" />
+        <div className="absolute bottom-0 left-1/3 h-72 w-72 rounded-full bg-yellow-200/30 blur-3xl" />
+        <div className="absolute -bottom-20 -right-16 h-72 w-72 rounded-full bg-sky-300/30 blur-3xl" />
+      </div>
 
-      {!isSupported && (
-        <p className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
-          Your browser doesn&apos;t support speech synthesis. Try the latest Chrome, Edge, or Firefox.
-        </p>
-      )}
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-6">
+        <header>
+          <h1 className="bg-gradient-to-r from-sky-500 to-pink-400 bg-clip-text text-3xl font-bold text-transparent">
+            🫧 ReadmeDis
+          </h1>
+          <p className="text-sm text-sky-600 dark:text-sky-300">
+            Turn your ebooks into audiobooks, right in your browser.
+          </p>
+        </header>
 
-      {error && (
-        <p className="rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">
-          {error}
-        </p>
-      )}
+        {!isSupported && (
+          <p className="rounded-2xl border-2 border-pink-200 bg-pink-50 p-4 text-sm text-pink-700 dark:border-pink-900 dark:bg-pink-950/40 dark:text-pink-300">
+            Your browser doesn&apos;t support speech synthesis. Try the latest Chrome, Edge, or Firefox.
+          </p>
+        )}
 
-      {!book ? (
-        <FileDropzone
-          extensions={getSupportedExtensions()}
-          onFileSelected={handleFileSelected}
-          disabled={!isSupported || isParsing}
-        />
-      ) : (
-        <div className="flex flex-1 flex-col gap-6">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-3">
-              {book.coverUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={book.coverUrl} alt="" className="h-16 w-11 rounded object-cover shadow" />
-              )}
-              <div>
-                <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">{book.title}</h2>
-                {book.author && (
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400">{book.author}</p>
-                )}
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                engineRef.current?.stop();
-                setBook(null);
-                setChunks([]);
-              }}
-              className="text-sm text-indigo-600 hover:underline dark:text-indigo-400"
-            >
-              Load a different book
-            </button>
-          </div>
+        {error && (
+          <p className="rounded-2xl border-2 border-pink-200 bg-pink-50 p-4 text-sm text-pink-700 dark:border-pink-900 dark:bg-pink-950/40 dark:text-pink-300">
+            {error}
+          </p>
+        )}
 
-          <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-[220px_1fr] md:[&>*]:h-[55vh]">
-            <ChapterList
-              chapters={book.chapters}
-              currentIndex={chapterIndex}
-              onSelect={(index) => selectChapter(index, true)}
-            />
-            <ChapterReader
-              title={book.chapters[chapterIndex].title}
-              chunks={chunks}
-              currentChunkIndex={progress.current}
-            />
-          </div>
-
-          <PlayerControls
-            playbackState={playbackState}
-            onPlayPause={handlePlayPause}
-            onStop={handleStop}
-            onPrevChapter={handlePrevChapter}
-            onNextChapter={handleNextChapter}
-            hasPrevChapter={chapterIndex > 0}
-            hasNextChapter={chapterIndex + 1 < book.chapters.length}
-            progress={progress}
-            voices={voices}
-            selectedVoiceURI={selectedVoiceURI}
-            onVoiceChange={setSelectedVoiceURI}
-            rate={rate}
-            onRateChange={setRate}
-            pitch={pitch}
-            onPitchChange={setPitch}
+        {!book ? (
+          <FileDropzone
+            extensions={getSupportedExtensions()}
+            onFileSelected={handleFileSelected}
+            disabled={!isSupported || isParsing}
           />
-        </div>
-      )}
+        ) : (
+          <div className="flex flex-1 flex-col gap-6">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-3">
+                {book.coverUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={book.coverUrl}
+                    alt=""
+                    className="h-16 w-11 rounded-lg object-cover shadow"
+                  />
+                )}
+                <div>
+                  <h2 className="font-semibold text-sky-900 dark:text-sky-50">{book.title}</h2>
+                  {book.author && (
+                    <p className="text-sm text-sky-500 dark:text-sky-400">{book.author}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  engineRef.current?.stop();
+                  setBook(null);
+                  setChunks([]);
+                }}
+                className="text-sm text-sky-600 hover:underline dark:text-sky-400"
+              >
+                🔄 Load a different book
+              </button>
+            </div>
+
+            <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-[220px_1fr] md:[&>*]:h-[55vh]">
+              <ChapterList
+                chapters={book.chapters}
+                currentIndex={chapterIndex}
+                onSelect={(index) => selectChapter(index, true)}
+              />
+              <ChapterReader
+                title={book.chapters[chapterIndex].title}
+                chunks={chunks}
+                currentChunkIndex={progress.current}
+              />
+            </div>
+
+            <PlayerControls
+              playbackState={playbackState}
+              onPlayPause={handlePlayPause}
+              onStop={handleStop}
+              onPrevChapter={handlePrevChapter}
+              onNextChapter={handleNextChapter}
+              hasPrevChapter={chapterIndex > 0}
+              hasNextChapter={chapterIndex + 1 < book.chapters.length}
+              progress={progress}
+              voices={voices}
+              selectedVoiceURI={selectedVoiceURI}
+              onVoiceChange={setSelectedVoiceURI}
+              rate={rate}
+              onRateChange={setRate}
+              pitch={pitch}
+              onPitchChange={setPitch}
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
