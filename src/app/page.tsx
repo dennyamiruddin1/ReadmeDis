@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChapterList } from "@/components/ChapterList";
 import { ChapterReader } from "@/components/ChapterReader";
 import { FileDropzone } from "@/components/FileDropzone";
@@ -55,6 +55,20 @@ export default function Home() {
     selectChapterRef.current = selectChapter;
   });
 
+  // Re-scans the OS voice list. Safari (especially iOS) often only picks up a
+  // newly downloaded voice once this runs again -- a plain page reload isn't
+  // always enough, so this is exposed both on tab-refocus and via a manual button.
+  const refreshVoices = useCallback(() => {
+    SpeechEngine.getVoices().then((loadedVoices) => {
+      setVoices(loadedVoices);
+      setSelectedVoiceURI((current) => {
+        if (current && loadedVoices.some((v) => v.voiceURI === current)) return current;
+        const defaultVoice = loadedVoices.find((v) => v.lang.startsWith("en")) ?? loadedVoices[0];
+        return defaultVoice?.voiceURI ?? current;
+      });
+    });
+  }, []);
+
   useEffect(() => {
     if (!SpeechEngine.isSupported()) {
       // One-time browser capability check, not state derived from props/state.
@@ -77,16 +91,20 @@ export default function Home() {
     });
     engineRef.current = engine;
 
-    SpeechEngine.getVoices().then((loadedVoices) => {
-      setVoices(loadedVoices);
-      const defaultVoice = loadedVoices.find((v) => v.lang.startsWith("en")) ?? loadedVoices[0];
-      if (defaultVoice) setSelectedVoiceURI(defaultVoice.voiceURI);
-    });
+    refreshVoices();
 
     return () => {
       window.speechSynthesis.cancel();
     };
-  }, []);
+  }, [refreshVoices]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") refreshVoices();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [refreshVoices]);
 
   useEffect(() => {
     const voice = voices.find((v) => v.voiceURI === selectedVoiceURI) ?? null;
@@ -158,7 +176,7 @@ export default function Home() {
             <span className="w-1/2 bg-brand-yellow" />
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-300">
-            Turn your ebooks into audiobooks, right in your browser.
+            I hope you make use out of this application Adis. Love you so much.
           </p>
         </header>
 
@@ -236,6 +254,7 @@ export default function Home() {
               voices={voices}
               selectedVoiceURI={selectedVoiceURI}
               onVoiceChange={setSelectedVoiceURI}
+              onRefreshVoices={refreshVoices}
               rate={rate}
               onRateChange={setRate}
               pitch={pitch}

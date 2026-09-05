@@ -14,6 +14,7 @@ interface PlayerControlsProps {
   voices: SpeechSynthesisVoice[];
   selectedVoiceURI: string;
   onVoiceChange: (uri: string) => void;
+  onRefreshVoices: () => void;
   rate: number;
   onRateChange: (rate: number) => void;
   pitch: number;
@@ -32,6 +33,7 @@ export function PlayerControls({
   voices,
   selectedVoiceURI,
   onVoiceChange,
+  onRefreshVoices,
   rate,
   onRateChange,
   pitch,
@@ -84,17 +86,28 @@ export function PlayerControls({
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
           🎙️ Voice
-          <select
-            value={selectedVoiceURI}
-            onChange={(e) => onVoiceChange(e.target.value)}
-            className="rounded-full border-2 border-brand-blue bg-white px-3 py-1.5 text-sm text-gray-800 dark:bg-[#0f2733] dark:text-gray-100"
-          >
-            {voices.map((voice) => (
-              <option key={voice.voiceURI} value={voice.voiceURI}>
-                {voice.name} ({voice.lang})
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={selectedVoiceURI}
+              onChange={(e) => onVoiceChange(e.target.value)}
+              className="w-full min-w-0 rounded-full border-2 border-brand-blue bg-white px-3 py-1.5 text-sm text-gray-800 dark:bg-[#0f2733] dark:text-gray-100"
+            >
+              {voices.map((voice) => (
+                <option key={voice.voiceURI} value={voice.voiceURI}>
+                  {voice.name} ({voice.lang})
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={onRefreshVoices}
+              title="Re-scan for newly installed voices"
+              aria-label="Refresh voice list"
+              className="shrink-0 rounded-full border-2 border-brand-blue p-1.5 text-gray-700 hover:bg-brand-blue/15 dark:text-gray-200"
+            >
+              🔄
+            </button>
+          </div>
         </label>
 
         <label className="flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400">
